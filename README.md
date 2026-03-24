@@ -120,6 +120,52 @@ uv run python main.py --max-iter 3 --max-docs 10 --max-candidates 10
 uv run python main.py --output result.json
 ```
 
+## Chroma Ingest (Markdown → Embedding)
+
+두 개의 지식 베이스 문서를 `BAAI/bge-m3`로 임베딩해, 프로젝트 루트의 `./chroma_db`에 저장합니다.
+
+- 입력 문서:
+  - `document_1_fixed_sources.md` → `investment_reports_robotics`
+  - `tech_analysis_knowledge_base_with_sources.md` → `robotics`
+- 스크립트: `scripts/ingest_markdown_to_chroma.py`
+
+```bash
+# 기존 컬렉션 초기화 후 재적재
+python scripts/ingest_markdown_to_chroma.py --domain robotics --persist-dir ./chroma_db --clear
+```
+
+### 저장/열람 검증
+
+아래 코드는 컬렉션 건수(count), 샘플 문서(peek), 유사도 검색 결과(query)를 확인합니다.
+
+```bash
+python - <<'PY'
+from pathlib import Path
+from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
+
+persist = Path("./chroma_db").resolve()
+emb = HuggingFaceEmbeddings(
+    model_name="BAAI/bge-m3",
+    model_kwargs={"device":"cpu"},
+    encode_kwargs={"normalize_embeddings":True},
+)
+
+for name, q in [
+    ("investment_reports_robotics", "market trend and startup funding"),
+    ("robotics", "TRL ISO 10218 robot safety risk"),
+]:
+    vs = Chroma(collection_name=name, embedding_function=emb, persist_directory=str(persist))
+    print(f"[{name}] count=", vs._collection.count())
+    print(f"[{name}] peek_ids=", vs._collection.peek(limit=2).get("ids", []))
+    docs = vs.similarity_search(q, k=2)
+    print(f"[{name}] query_top1=", (docs[0].page_content[:120] if docs else ""))
+
+print("persist_dir=", persist)
+print("sqlite_exists=", (persist / "chroma.sqlite3").exists())
+PY
+```
+
 ## Contributors
 
 | 팀원 | 담당 에이전트 | 역할 |
