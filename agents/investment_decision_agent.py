@@ -270,14 +270,7 @@ def run_investment_decision(current_evaluation: Dict[str, Any]) -> Dict[str, Any
         for category, data in breakdown.items()
         if category in CATEGORY_WEIGHTS
     }
-    veto_categories = [name for name, value in category_averages.items() if value <= 1.0]
-
-    if veto_categories:
-        decision = "pass"
-    elif total_score >= INVEST_THRESHOLD and not critical_data_missing:
-        decision = "invest"
-    else:
-        decision = "pass"
+    decision = "invest" if total_score >= INVEST_THRESHOLD else "pass"
 
     evidence_flags = breakdown["data_quality"]["evidence_flags"]
     evidence_ratio = sum(1.0 for flag in evidence_flags.values() if flag) / len(evidence_flags)
@@ -297,19 +290,15 @@ def run_investment_decision(current_evaluation: Dict[str, Any]) -> Dict[str, Any
 
     rationale_parts = [
         f"총점 {total_score:.2f}/100",
+        f"판단 기준: 총점 {INVEST_THRESHOLD:.0f}점 이상이면 투자",
         (
             "기술 {tech:.2f}, 시장 {market:.2f}, 팀 {team:.2f}, 경쟁 {competitive:.2f}, 리스크 {risk:.2f}"
         ).format(**category_averages),
         f"강점 카테고리: {strongest_category}",
         f"보완 필요 카테고리: {weakest_category}",
     ]
-    if veto_categories:
-        rationale_parts.append(
-            "거부권 발동: 단일 카테고리 1점(평균 1.0) 발생으로 총점과 무관하게 보류"
-        )
-        rationale_parts.append(f"과락 카테고리: {', '.join(veto_categories)}")
     if critical_data_missing:
-        rationale_parts.append("핵심 근거 데이터가 일부 부족해 투자 승인은 보수적으로 보류")
+        rationale_parts.append("핵심 근거 데이터가 일부 부족하므로 결과 해석에는 주의 필요")
     if current_evaluation.get("hold_reason"):
         rationale_parts.append(f"보류 사유: {current_evaluation['hold_reason']}")
 
