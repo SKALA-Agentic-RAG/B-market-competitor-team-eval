@@ -14,7 +14,7 @@ load_dotenv()
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from agents.agentic_rag import agentic_retrieve, build_collection_name
 from state import AgentInputState
@@ -31,7 +31,11 @@ class CompetitorAnalysisState(AgentInputState):
     competitor_analysis: Dict[str, Any]
 
 
-class CompetitorScores(BaseModel):
+class StrictSchemaModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class CompetitorScores(StrictSchemaModel):
     differentiation: float = Field(
         2.0, ge=1.0, le=5.0, description="경쟁사 대비 제품·기술·비즈니스 모델 차별화"
     )
@@ -40,31 +44,85 @@ class CompetitorScores(BaseModel):
     )
 
 
-class CompetitorProfile(BaseModel):
+class CompetitorProfile(StrictSchemaModel):
     name: str = Field(default="")
     segment: str = Field(default="")
     tech_spec: str = Field(default="")
     price_range: str = Field(default="비공개")
     customers: str = Field(default="")
     partnerships: str = Field(default="")
+    region: str = Field(default="")
     differentiator: str = Field(default="")
 
 
-class CompetitorEvidence(BaseModel):
+class CompetitorEvidence(StrictSchemaModel):
     claim: str = Field(default="")
     source_title: str = Field(default="")
     url: str = Field(default="")
 
 
-class CompetitorAnalysisPayload(BaseModel):
+class ComparisonTable(StrictSchemaModel):
+    columns: List[str] = Field(default_factory=list)
+    rows: List[List[str]] = Field(default_factory=list)
+
+    @field_validator("columns", mode="before")
+    @classmethod
+    def _coerce_columns(cls, value: Any) -> List[str]:
+        if not value:
+            return []
+        return [str(item) for item in value]
+
+    @field_validator("rows", mode="before")
+    @classmethod
+    def _coerce_rows(cls, value: Any) -> List[List[str]]:
+        if not value:
+            return []
+        normalized_rows: List[List[str]] = []
+        for row in value:
+            if isinstance(row, list):
+                normalized_rows.append([str(item) for item in row])
+            else:
+                normalized_rows.append([str(row)])
+        return normalized_rows
+
+
+class CompetitorAnalysisPayload(StrictSchemaModel):
     scores: CompetitorScores = Field(default_factory=CompetitorScores)
     target_segment: str = Field(default="")
-    comparison_table: Dict[str, Any] = Field(default_factory=dict)
+    comparison_table: ComparisonTable = Field(default_factory=ComparisonTable)
     competitors: List[CompetitorProfile] = Field(default_factory=list)
     our_advantages: List[str] = Field(default_factory=list)
     our_disadvantages: List[str] = Field(default_factory=list)
     summary: str = Field(default="")
     evidence: List[CompetitorEvidence] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_flat_payload(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+
+        normalized = dict(value)
+
+        if "scores" not in normalized:
+            scores: Dict[str, Any] = {}
+            if "differentiation" in normalized:
+                scores["differentiation"] = normalized.pop("differentiation")
+            if "moat" in normalized:
+                scores["moat"] = normalized.pop("moat")
+            if scores:
+                normalized["scores"] = scores
+
+        if "comparison_table" not in normalized:
+            columns = normalized.pop("columns", None)
+            rows = normalized.pop("rows", None)
+            if columns is not None or rows is not None:
+                normalized["comparison_table"] = {
+                    "columns": columns or [],
+                    "rows": rows or [],
+                }
+
+        return normalized
 
 
 def _unique_docs(*doc_groups: List[str]) -> List[str]:
@@ -138,7 +196,9 @@ llm = ChatOpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
 )
 
-llm_competitor = llm.with_structured_output(CompetitorAnalysisPayload)
+llm_competitor = llm.with_structured_output(
+    CompetitorAnalysisPayload, method="function_calling"
+)
 
 
 def retrieve_competitor_docs_node(state: CompetitorAnalysisState) -> Dict[str, Any]:
@@ -147,9 +207,9 @@ def retrieve_competitor_docs_node(state: CompetitorAnalysisState) -> Dict[str, A
     k = state.get("max_documents", 5)
 
     company_queries = [
-        f"{startup_name} 경쟁사 대체재 비교",
-        f"{startup_name} competitors alternatives benchmark",
-        f"{startup_name} 가격 고객 포지셔닝",
+        f"{startup_name} 경쟁사 대비 차별화 기술 우위 해자 AMR 물류",
+        f"{startup_name} 고객사 파트너십 포지셔닝 시장 선점 투자 유치",
+        f"{startup_name} RaaS 상용화 TRL 기술 완성도 경쟁력 독창성",
     ]
     company_docs, company_errors = agentic_retrieve(
         queries=company_queries,
@@ -159,8 +219,8 @@ def retrieve_competitor_docs_node(state: CompetitorAnalysisState) -> Dict[str, A
     )
 
     report_queries = [
-        f"{domain} 로보틱스 경쟁 구도 주요 업체",
-        f"{startup_name} 시장 세그먼트 주요 플레이어",
+        f"{domain} AMR 창고 자동화 경쟁 구도 차별화 포지셔닝 최우수",
+        f"{startup_name} 시장 세그먼트 독보적 포지션 해자 비교 분석",
     ]
     report_docs, report_errors = agentic_retrieve(
         queries=report_queries,
@@ -215,6 +275,7 @@ def analyze_competitors_node(state: CompetitorAnalysisState) -> Dict[str, Any]:
             (
                 "system",
                 """당신은 로보틱스·자동화 산업의 경쟁 전략 및 투자 분석 전문가입니다.
+목표는 이 스타트업이 경쟁 우위 측면에서 최고 투자 대상인지 판단하는 것입니다.
 대상 스타트업과 동일 세그먼트에서 실제로 경쟁하거나 대체될 수 있는 기업을 중심으로
 비교 분석을 수행하세요.
 
@@ -227,10 +288,12 @@ def analyze_competitors_node(state: CompetitorAnalysisState) -> Dict[str, Any]:
 - 지역/주력 시장
 
 점수 기준:
-- differentiation: 1=범용·모방 / 3=일부 차별화 / 5=명확한 우위
-- moat: 1=낮음 / 3=단일 요인 / 5=복합 해자
+- scores.differentiation: 1=범용·모방 / 3=일부 차별화 / 5=명확한 우위
+- scores.moat: 1=낮음 / 3=단일 요인 / 5=복합 해자
 
-문서에 없는 세부 내용은 추측하지 말고 보수적으로 정리하세요.""",
+이 기업이 경쟁사 대비 지속 가능한 해자를 보유하고 있는지 중점적으로 평가하세요.
+문서에 없는 세부 내용은 추측하지 말고 보수적으로 정리하세요.
+비교표는 루트의 columns/rows가 아니라 comparison_table.columns / comparison_table.rows에 넣으세요.""",
             ),
             (
                 "human",

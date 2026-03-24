@@ -15,7 +15,7 @@ load_dotenv()
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, START, END
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from state import AgentInputState
 from agents.agentic_rag import agentic_retrieve, build_collection_name
@@ -51,6 +51,15 @@ class CoreTechIndicators(BaseModel):
     communication: Optional[str] = Field(None, description="통신 방식")
     power_source: Optional[str] = Field(None, description="전원 방식")
 
+    @field_validator("ai_algorithms", "sensors", mode="before")
+    @classmethod
+    def _coerce_list_fields(cls, value: Any) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [str(item) for item in value if item is not None]
+        return [str(value)]
+
 
 class TechMaturityAssessment(BaseModel):
     """기술성숙도(TRL) 평가"""
@@ -78,6 +87,15 @@ class TechMaturityAssessment(BaseModel):
     tech_score: float = Field(..., ge=0, le=100, description="기술력 종합 점수 (0~100)")
     score_rationale: str = Field(..., description="점수 산정 근거")
     summary: str = Field(..., description="기술력 분석 요약 (3~5문장)")
+
+    @field_validator("strengths", "weaknesses", mode="before")
+    @classmethod
+    def _coerce_summary_lists(cls, value: Any) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [str(item) for item in value if item is not None]
+        return [str(value)]
 
 
 def build_empty_core_tech_indicators() -> Dict[str, Any]:
@@ -163,8 +181,12 @@ llm = ChatOpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
 )
 
-llm_indicators = llm.with_structured_output(CoreTechIndicators)
-llm_maturity = llm.with_structured_output(TechMaturityAssessment)
+llm_indicators = llm.with_structured_output(
+    CoreTechIndicators, method="function_calling"
+)
+llm_maturity = llm.with_structured_output(
+    TechMaturityAssessment, method="function_calling"
+)
 
 
 # ────────────────────────────────────────────
@@ -178,9 +200,9 @@ def retrieve_tech_docs_node(state: TechAnalysisState) -> Dict[str, Any]:
     k = state.get("max_documents", 5)
 
     queries = [
-        f"{startup_name} 로봇 기술 사양",
-        f"{startup_name} 특허 AI 알고리즘",
-        f"{startup_name} 자율화 기술 센서",
+        f"{startup_name} TRL 기술 완성도 HW SW 통합도 핵심 독창성 강점",
+        f"{startup_name} 자율주행 레벨 AI 알고리즘 DoF Payload SLAM 센서",
+        f"{startup_name} 상용화 고객사 투자 유치 물류 자동화 AMR 성장",
     ]
 
     docs, rag_errors = agentic_retrieve(
@@ -221,6 +243,7 @@ def analyze_tech_indicators_node(state: TechAnalysisState) -> Dict[str, Any]:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", """당신은 로봇공학 전문가입니다.
+목표는 이 스타트업이 최고 투자 대상이 될 수 있는지 판단하기 위해 기술적 경쟁 우위를 정확하게 파악하는 것입니다.
 제공된 문서에서 로봇 시스템의 핵심 기술 지표를 정확하게 추출하세요.
 수치가 명시되지 않은 경우 null로 표시하고, 추측하지 마세요."""),
         ("human", """스타트업: {startup_name}
@@ -229,7 +252,7 @@ def analyze_tech_indicators_node(state: TechAnalysisState) -> Dict[str, Any]:
 관련 문서:
 {docs}
 
-위 정보를 바탕으로 핵심 기술 지표를 추출하세요."""),
+이 기업의 기술이 경쟁사 대비 우위를 가질 수 있는지 판단할 수 있도록 핵심 기술 지표를 추출하세요."""),
     ])
 
     result: CoreTechIndicators = (prompt | llm_indicators).invoke({
@@ -261,6 +284,7 @@ def assess_tech_maturity_node(state: TechAnalysisState) -> Dict[str, Any]:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", """당신은 기술성숙도(TRL) 평가 전문가입니다.
+목표는 이 스타트업이 기술력 측면에서 최고 투자 대상인지 판단하는 것입니다.
 
 TRL 기준:
 - TRL 1~3: 기초연구 (개념 검증, 실험실 수준)
@@ -272,7 +296,7 @@ TRL 기준:
 - 기술 성숙도 점수: 1=TRL 1~3 / 3=TRL 4~6 / 5=TRL 7~9
 - HW+SW 통합 역량: 1=SW만 / 3=일부 통합 / 5=완전 수직계열화
 
-로봇 기술의 성숙도를 객관적으로 평가하고 강점/약점을 도출하세요.
+기술적 강점이 타 경쟁사 대비 실질적인 해자(moat)가 되는지 중점적으로 평가하세요.
 각 점수는 반드시 1~5 숫자로 반환하고, 점수 근거를 함께 설명하세요."""),
         ("human", """스타트업: {startup_name}
 
@@ -282,7 +306,7 @@ TRL 기준:
 관련 문서:
 {docs}
 
-TRL 평가 및 기술력 종합 분석을 수행하세요."""),
+이 기업이 기술력 면에서 최고 투자 대상이 될 수 있는지 판단할 수 있도록 TRL 평가 및 기술력 종합 분석을 수행하세요."""),
     ])
 
     result: TechMaturityAssessment = (prompt | llm_maturity).invoke({

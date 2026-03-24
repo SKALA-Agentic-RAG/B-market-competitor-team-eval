@@ -6,7 +6,7 @@
 """
 
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -104,7 +104,9 @@ llm = ChatOpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
 )
 
-llm_team = llm.with_structured_output(TeamAssessmentPayload)
+llm_team = llm.with_structured_output(
+    TeamAssessmentPayload, method="function_calling"
+)
 
 
 def analyze_team_node(state: TeamEvalState) -> Dict[str, Any]:

@@ -204,9 +204,15 @@ llm = ChatOpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
 )
 
-llm_regulatory = llm.with_structured_output(RegulatoryRiskAssessment)
-llm_market = llm.with_structured_output(MarketRiskAssessment)
-llm_overall = llm.with_structured_output(OverallRiskSummary)
+llm_regulatory = llm.with_structured_output(
+    RegulatoryRiskAssessment, method="function_calling"
+)
+llm_market = llm.with_structured_output(
+    MarketRiskAssessment, method="function_calling"
+)
+llm_overall = llm.with_structured_output(
+    OverallRiskSummary, method="function_calling"
+)
 
 
 # ────────────────────────────────────────────
@@ -220,9 +226,9 @@ def retrieve_risk_docs_node(state: RiskAssessmentState) -> Dict[str, Any]:
     k = state.get("max_documents", 5)
 
     queries = [
-        f"{startup_name} 안전 규제 인증 ISO",
-        f"{startup_name} 수출 규제 전략물자",
-        f"{startup_name} 시장 경쟁사 재무",
+        f"{startup_name} 안전 규제 인증 ISO 준수 약점 리스크 취약점",
+        f"{startup_name} 수출 규제 전략물자 지정학 리스크 낮음 투자 유리",
+        f"{startup_name} 재무 런웨이 시리즈 투자 자금 안정성 상용화",
     ]
 
     docs, rag_errors = agentic_retrieve(
@@ -265,6 +271,8 @@ def assess_regulatory_risk_node(state: RiskAssessmentState) -> Dict[str, Any]:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", """당신은 로봇 산업 규제 전문가입니다.
+목표는 이 스타트업이 규제 리스크 측면에서 최고 투자 대상인지 판단하는 것입니다.
+규제 리스크가 낮고 투자에 유리한 요소를 중점적으로 파악하세요.
 
 주요 평가 항목:
 1. 안전 규제: ISO 10218 (산업용 로봇), ISO/TS 15066 (협동로봇), ISO 13849, IEC 62061
@@ -318,6 +326,8 @@ def assess_market_risk_node(state: RiskAssessmentState) -> Dict[str, Any]:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", """당신은 스타트업 투자 분석 전문가입니다.
+목표는 이 스타트업이 시장/경쟁/재무 리스크 측면에서 최고 투자 대상인지 판단하는 것입니다.
+리스크가 낮고 투자 회수 가능성이 높은 요소를 중점적으로 파악하세요.
 
 평가 항목:
 1. 시장 리스크: TAM/SAM/SOM 규모, 성장률, 시장 진입 타이밍
@@ -389,7 +399,9 @@ def compile_risk_report_node(state: RiskAssessmentState) -> Dict[str, Any]:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", """당신은 종합 리스크 평가 전문가입니다.
-규제/시장/경쟁/재무 리스크를 종합하여 최종 투자 리스크 등급을 산정하세요.
+목표는 이 스타트업이 종합 리스크 측면에서 최고 투자 대상인지 판단하는 것입니다.
+규제/시장/경쟁/재무 리스크를 종합하여 최종 투자 리스크 등급을 산정하고,
+리스크가 낮아 투자하기 유리한 근거를 중점적으로 서술하세요.
 
 종합 리스크 등급 산정 기준:
 - 상: 복수의 '상' 등급 리스크 존재 또는 치명적 단일 리스크

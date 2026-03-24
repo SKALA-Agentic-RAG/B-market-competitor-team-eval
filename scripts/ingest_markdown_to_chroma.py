@@ -9,6 +9,7 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from pypdf import PdfReader
 
 def build_collection_name(base: str, domain: str) -> str:
     normalized_base = (base or "").strip()
@@ -38,6 +39,30 @@ def _chunk_markdown(md_path: Path, chunk_size: int, chunk_overlap: int) -> List[
     return splitter.split_documents([base])
 
 
+def _chunk_pdf(pdf_path: Path, chunk_size: int, chunk_overlap: int) -> List[Document]:
+    reader = PdfReader(str(pdf_path))
+    pages = []
+    for i, page in enumerate(reader.pages):
+        text = page.extract_text() or ""
+        if text.strip():
+            pages.append(Document(
+                page_content=text,
+                metadata={"source_path": str(pdf_path), "title": pdf_path.stem, "page": i + 1},
+            ))
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        separators=["\n\n", "\n", ".", " ", ""],
+    )
+    return splitter.split_documents(pages)
+
+
+def _chunk_file(path: Path, chunk_size: int, chunk_overlap: int) -> List[Document]:
+    if path.suffix.lower() == ".pdf":
+        return _chunk_pdf(path, chunk_size, chunk_overlap)
+    return _chunk_markdown(path, chunk_size, chunk_overlap)
+
+
 def _stable_ids(path: Path, docs: Iterable[Document]) -> List[str]:
     ids: List[str] = []
     for i, d in enumerate(docs):
@@ -46,7 +71,7 @@ def _stable_ids(path: Path, docs: Iterable[Document]) -> List[str]:
     return ids
 
 
-def ingest_markdown_file(
+def ingest_file(
     md_path: Path,
     collection_name: str,
     persist_directory: Path,
@@ -54,7 +79,7 @@ def ingest_markdown_file(
     chunk_size: int,
     chunk_overlap: int,
 ) -> int:
-    docs = _chunk_markdown(md_path, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    docs = _chunk_file(md_path, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     if not docs:
         return 0
 
@@ -113,6 +138,23 @@ def main() -> None:
             project_root / "tech_analysis_knowledge_base_with_sources.md",
             build_collection_name("robotics", args.domain),
         ),
+        # 추가 지식 베이스
+        (
+            project_root / "기술분석.md",
+            build_collection_name("robotics", args.domain),
+        ),
+        (
+            project_root / "스타트업_기업_자료.md",
+            build_collection_name("robotics", args.domain),
+        ),
+        (
+            project_root / "경쟁사_분석.md",
+            build_collection_name("investment_reports", args.domain),
+        ),
+        (
+            project_root / "시장분석.pdf",
+            build_collection_name("investment_reports", args.domain),
+        ),
     ]
 
     embeddings = HuggingFaceEmbeddings(
@@ -140,7 +182,7 @@ def main() -> None:
         if not md_path.exists():
             print(f"[skip] missing file: {md_path}")
             continue
-        added = ingest_markdown_file(
+        added = ingest_file(
             md_path=md_path,
             collection_name=collection,
             persist_directory=persist_dir,

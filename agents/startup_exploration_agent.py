@@ -77,8 +77,12 @@ llm = ChatOpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
 )
 
-llm_extract = llm.with_structured_output(StartupCandidateList)
-llm_rank = llm.with_structured_output(RankedCandidateList)
+llm_extract = llm.with_structured_output(
+    StartupCandidateList, method="function_calling"
+)
+llm_rank = llm.with_structured_output(
+    RankedCandidateList, method="function_calling"
+)
 
 
 # ────────────────────────────────────────────
@@ -91,9 +95,9 @@ def retrieve_reports_node(state: ExplorationState) -> Dict[str, Any]:
     k = state.get("max_documents", 10)
 
     queries = [
-        f"{domain} 스타트업 투자 유치 현황 CB Insights",
-        f"{domain} 로보틱스 AI 스타트업 KOTRA 리포트",
-        f"{domain} 유망 스타트업 시리즈 펀딩 2023 2024",
+        f"{domain} AMR 창고 물류 자동화 스타트업 투자 유치 유니콘 RaaS 차별화",
+        f"{domain} 휴머노이드 AI 피킹 로봇 물류 최우수 경쟁 우위 해자",
+        f"{domain} 경쟁 구도 포지셔닝 기술 독창성 Series 투자 매력 최고",
     ]
 
     docs, rag_errors = agentic_retrieve(
@@ -134,21 +138,21 @@ def extract_candidates_node(state: ExplorationState) -> Dict[str, Any]:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", """당신은 로보틱스 스타트업 투자 리서치 전문가입니다.
-제공된 투자 리포트에서 유망 스타트업 후보를 추출하세요.
+목표는 제공된 투자 리포트에서 최종적으로 단 하나의 최고 투자 대상을 선정하기 위한 후보를 추출하는 것입니다.
 
-추출 기준:
+추출 기준 (엄격하게 적용):
 1. {domain} 도메인에 해당하는 스타트업
-2. 기술적 혁신성이 언급된 기업
-3. 투자 유치 이력이 있는 기업 (Seed 이상)
+2. 기술적 독창성과 경쟁 우위가 뚜렷한 기업
+3. 실질적인 투자 유치 이력이 있는 기업 (Seed 이상)
 4. 창업 연도, 투자 단계, 제품군 정보가 확인 가능한 기업
 
-최대 {top_k}개 이상의 후보를 추출하세요 (이후 순위 정렬 단계에서 추린다)."""),
+최대 {top_k}개 이상의 후보를 추출하세요 (이후 최고 투자 대상 1개 선정 단계에서 추린다)."""),
         ("human", """도메인: {domain}
 
 투자 리포트:
 {docs}
 
-위 리포트에서 {domain} 분야 유망 스타트업 후보를 추출하세요."""),
+위 리포트에서 {domain} 분야에서 가장 투자 가치가 높을 것으로 보이는 스타트업 후보를 추출하세요."""),
     ])
 
     result: StartupCandidateList = (prompt | llm_extract).invoke({
@@ -187,20 +191,21 @@ def rank_and_select_node(state: ExplorationState) -> Dict[str, Any]:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", """당신은 로보틱스 스타트업 투자 분석가입니다.
-아래 후보 목록을 투자 매력도 기준으로 순위를 매기고 상위 {top_k}개를 선정하세요.
+목표는 후보 중에서 최종적으로 단 하나의 최고 투자 대상을 찾는 것입니다.
+아래 후보 목록을 투자 매력도 기준으로 엄격하게 순위를 매기고 상위 {top_k}개를 선정하세요.
 
-순위 기준:
-1. 기술 차별성 및 혁신성
-2. 시장 성장 가능성
-3. 투자 유치 모멘텀 (단계, 금액)
-4. 팀/창업자 이력 (언급된 경우)"""),
+순위 기준 (중요도 순):
+1. 기술 독창성 및 경쟁사 대비 명확한 차별화
+2. 시장 규모 및 성장 가능성
+3. 투자 유치 모멘텀 (단계, 금액, 투자자 tier)
+4. 팀/창업자 도메인 전문성"""),
         ("human", """도메인: {domain}
 선정 수: {top_k}개
 
 후보 목록:
 {candidates}
 
-투자 매력도 순으로 {top_k}개를 선정하세요."""),
+투자 매력도 순위를 매겨 상위 {top_k}개를 선정하세요. 1위 후보는 최종 최고 투자 대상 선정에서 가장 우선 검토됩니다."""),
     ])
 
     result: RankedCandidateList = (prompt | llm_rank).invoke({

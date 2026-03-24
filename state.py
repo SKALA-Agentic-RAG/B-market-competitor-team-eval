@@ -27,6 +27,7 @@ class StartupEvaluationState(TypedDict):
     startup_name: str
     startup_info: Dict[str, Any]
     tech_analysis: Dict[str, Any]
+    market_analysis: Dict[str, Any]
     team_assessment: Dict[str, Any]
     risk_assessment: Dict[str, Any]
     competitor_analysis: Dict[str, Any]
