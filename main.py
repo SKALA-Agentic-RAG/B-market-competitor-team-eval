@@ -13,6 +13,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from orchestrator import run_evaluation
+from pdf_report import export_json_report_to_pdf
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,7 +46,7 @@ def parse_args() -> argparse.Namespace:
         "--output",
         type=str,
         default=None,
-        help="결과를 저장할 JSON 파일 경로 (생략 시 stdout 출력)",
+        help="결과를 저장할 JSON 파일 경로 (동일 이름의 PDF도 함께 생성)",
     )
     return parser.parse_args()
 
@@ -118,6 +119,12 @@ def main() -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(result_json, encoding="utf-8")
     print(f"[저장] 결과 파일: {output_path}")
+
+    try:
+        pdf_path = export_json_report_to_pdf(output_data, output_path)
+        print(f"[저장] PDF 보고서: {pdf_path}")
+    except Exception as e:
+        print(f"[경고] PDF 보고서 생성 실패: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
